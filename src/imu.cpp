@@ -1,21 +1,21 @@
-#pragma once
-
 #include "config.h"
 #include "types.h"
 #include "ICM_20948.h"
 #include <EEPROM.h>
 
 static ICM_20948_I2C myICM;
-static bool biasRestores = false;
+static bool biasRestored = false;
 static bool biasSaved = false;
+static bool eepromReady = false;
 static uint32_t startTimeMs = 0;
 
-static bool ConnectSensor()
+static bool connectSensor()
 {
-    for (int32_t attempt = 1; attempt <= cfg::IMU_INIT_MAX_TRIES; attempt++)
+    for (uint8_t attempt = 1; attempt <= cfg::IMU_INIT_MAX_TRIES; attempt++)
     {
         myICM.begin(IMU_WIRE_PORT, cfg::IMU_AD0_VAL);
-        Serial.printf("[IMU] Connect attempt:" + attempt);
+        Serial.printf("[IMU] Connect attempt %d/%d: %s\n",
+                      attempt, cfg::IMU_INIT_MAX_TRIES, myICM.statusString());
 
         if (myICM.status == ICM_20948_Stat_Ok)
             return true;
@@ -47,7 +47,7 @@ static bool configureDMP()
     return success;
 }
 
-static void printBiases(const BiasStore &store)
+static void printBias(const BiasStore &store)
 {
     Serial.printf("Gyro  X:%d Y:%d Z:%d\n",
                   store.biasGyroX, store.biasGyroY, store.biasGyroZ);
@@ -63,7 +63,7 @@ static bool restoreBias()
 
     if (!store.isValid())
     {
-        Serial.println("[IMU] WARNING: No valid bias data in EEPROM");
+        Serial.println("[IMU] WARNING: No valid bias data in EEPROM - START UNCALIBRATED");
         return false;
     }
 
@@ -79,7 +79,7 @@ static bool restoreBias()
     if (success)
     {
         Serial.println("[IMU] SUCCESS: Bias restored");
-        printBiases(store);
+        printBias(store);
     }
     else
     {
@@ -89,7 +89,7 @@ static bool restoreBias()
     return success;
 }
 
-static bool saveBiases()
+static bool saveBias()
 {
     BiasStore store;
 
@@ -117,7 +117,7 @@ static bool saveBiases()
     if (verify.isValid())
     {
         Serial.println("[IMU] SUCCESS: Bias saved to EEPROM");
-        printBiases(verify);
+        printBias(verify);
         return true;
     }
 
@@ -128,11 +128,15 @@ static bool saveBiases()
 static void quaternionToAngles(const icm_20948_DMP_data_t &data, Angles &out)
 {
     constexpr double inv2pow30 = 1.0 / 1073741824.0; // 1 / 2^30
+    constexpr double radToDeg = 180.0 / PI;
 
     const double q1 = data.Quat6.Data.Q1 * inv2pow30;
     const double q2 = data.Quat6.Data.Q2 * inv2pow30;
     const double q3 = data.Quat6.Data.Q3 * inv2pow30;
-    const double q0 = sqrt(1.0 - (q1 * q1 + q2 * q2 + q3 * q3));
+
+    // Guard sqrt against tiny negative values from floating-point roundoff
+    const double q0sq = 1.0 - (q1 * q1 + q2 * q2 + q3 * q3);
+    const double q0 = sqrt(q0sq > 0.0 ? q0sq : 0.0);
 
     // Remap ICM-20948 chip axes → aircraft convention (x-forward, y-right, z-down)
     const double qw = q0;
@@ -140,21 +144,111 @@ static void quaternionToAngles(const icm_20948_DMP_data_t &data, Angles &out)
     const double qy = q1;
     const double qz = -q3;
 
-    // Roll (+/- 180°)
-    out.roll = static_cast<float>(
-        atan2(2.0 * (qw * qx + qy * qz), 1.0 - 2.0 * (qx * qx + qy * qy)) * 180.0 / PI);
+    // Roll (x-axis rotation)
+    const double t0 = 2.0 * (qw * qx + qy * qz);
+    const double t1 = 1.0 - 2.0 * (qx * qx + qy * qy);
+    const double roll = atan2(t0, t1) * radToDeg;
 
-    // Pitch (+/- 90°) — constrain prevents asin() domain error on noisy input
-    const double sinPitch = constrain(2.0 * (qw * qy - qx * qz), -1.0, 1.0);
-    out.pitch = static_cast<float>(asin(sinPitch) * 180.0 / PI);
+    // Pitch (y-axis rotation)
+    double t2 = 2.0 * (qw * qy - qx * qz);
+    t2 = t2 > 1.0 ? 1.0 : t2;
+    t2 = t2 < -1.0 ? -1.0 : t2;
+    const double pitch = asin(t2) * radToDeg;
 
-    // Yaw (+/- 180°)
-    out.yaw = static_cast<float>(
-        atan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz)) * 180.0 / PI);
+    // Yaw (z-axis rotation)
+    const double t3 = 2.0 * (qw * qz + qx * qy);
+    const double t4 = 1.0 - 2.0 * (qy * qy + qz * qz);
+    const double yaw = atan2(t3, t4) * radToDeg;
+
+    out.roll = static_cast<float>(roll);
+    out.pitch = static_cast<float>(pitch);
+    out.yaw = static_cast<float>(yaw);
 
     if (cfg::IMU_MOUNTED_UPSIDE_DOWN)
     {
         out.pitch = -out.pitch;
         out.roll = -out.roll;
     }
+}
+
+// === Public APIs ===
+bool imuInit()
+{
+    IMU_WIRE_PORT.begin(cfg::IMU_SDA_PIN, cfg::IMU_SCL_PIN);
+    IMU_WIRE_PORT.setClock(cfg::IMU_I2C_CLOCK);
+
+    if (!connectSensor())
+    {
+        Serial.println("[IMU] ERROR: Sensor not found. Check wiring!");
+        return false;
+    }
+    Serial.println("[IMU] SUCCESS: Sensor connected");
+
+    if (!configureDMP())
+    {
+        Serial.println("[IMU] ERROR: DMP setup failed");
+        return false;
+    }
+    Serial.println("[IMU] SUCCESS: DMP ready - 6DoF mode");
+
+    eepromReady = EEPROM.begin(cfg::IMU_EEPROM_SIZE);
+
+    if (!eepromReady)
+    {
+        Serial.println("[IMU] WARNING: EEPROM init failed - bias will not be saved");
+    }
+    else
+    {
+        biasRestored = restoreBias();
+    }
+
+    startTimeMs = millis();
+    return true;
+}
+
+void imuUpdateBias()
+{
+    if (biasSaved)
+        return;
+    if (!eepromReady)
+        return;
+
+    if ((millis() - startTimeMs) >= cfg::IMU_BIAS_CALIBRATION_MS)
+    {
+        Serial.println("[IMU] Calibration period complete, saving bias");
+        biasSaved = saveBias();
+    }
+}
+
+bool imuRead(Angles &out)
+{
+    icm_20948_DMP_data_t data;
+    myICM.readDMPdataFromFIFO(&data);
+
+    const bool hasData = (myICM.status == ICM_20948_Stat_Ok ||
+                          myICM.status == ICM_20948_Stat_FIFOMoreDataAvail);
+
+    if (!hasData)
+        return false;
+    if (!(data.header & DMP_header_bitmap_Quat6))
+        return false;
+
+    quaternionToAngles(data, out);
+
+    // Drain remaining FIFO frames to prevent lag buildup
+    if (myICM.status == ICM_20948_Stat_FIFOMoreDataAvail)
+        imuRead(out);
+
+    return true;
+}
+
+bool imuBiasesRestored()
+{
+    return biasRestored;
+}
+
+void imuPrintAngles(const Angles &a)
+{
+    Serial.printf("Pitch: %6.2f  Roll: %6.2f  Yaw: %6.2f  (deg)\n",
+                  a.pitch, a.roll, a.yaw);
 }

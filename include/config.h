@@ -32,7 +32,7 @@ namespace cfg
     constexpr bool IMU_MOUNTED_UPSIDE_DOWN = true;
 
     // BIAS
-    constexpr uint32_t IMU_BIAS_SAVE_INTERVAL_MS = 120000;
+    constexpr uint32_t IMU_BIAS_CALIBRATION_MS = 120000;
 
     constexpr uint16_t IMU_EEPROM_SIZE = 128; // bytes
     constexpr uint8_t IMU_EEPROM_ADDR = 0;
