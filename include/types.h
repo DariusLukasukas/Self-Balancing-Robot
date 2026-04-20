@@ -4,9 +4,9 @@
 
 struct Angles
 {
-    float pitch = 0.0f; // Forward/backward tilt - primary balancing axis (deg)
-    float roll = 0.0f;  // Left/right tilt (deg)
-    float yaw = 0.0f;   // Heading - not used for balancing
+    float pitch = 0.0f; // Not used
+    float roll = 0.0f;  // Forward/backward tilt - primary balancing axis (deg)
+    float yaw = 0.0f;   // Left/right tilt (deg)
 };
 
 struct BiasStore

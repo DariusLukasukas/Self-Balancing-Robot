@@ -3,11 +3,15 @@
 #include "ICM_20948.h"
 #include <EEPROM.h>
 
-static ICM_20948_I2C myICM;
-static bool biasRestored = false;
-static bool biasSaved = false;
-static bool eepromReady = false;
-static uint32_t startTimeMs = 0;
+namespace
+{
+    ICM_20948_I2C myICM;
+    bool initialized = false;
+    bool biasRestored = false;
+    bool biasSaved = false;
+    bool eepromReady = false;
+    uint32_t startTimeMs = 0;
+}
 
 static bool connectSensor()
 {
@@ -127,8 +131,8 @@ static bool saveBias()
 
 static void quaternionToAngles(const icm_20948_DMP_data_t &data, Angles &out)
 {
-    constexpr double inv2pow30 = 1.0 / 1073741824.0; // 1 / 2^30
-    constexpr double radToDeg = 180.0 / PI;
+    constexpr float inv2pow30 = 1.0f / 1073741824.0; // 1 / 2^30
+    constexpr float radToDeg = 180.0f / PI;
 
     const double q1 = data.Quat6.Data.Q1 * inv2pow30;
     const double q2 = data.Quat6.Data.Q2 * inv2pow30;
@@ -203,11 +207,14 @@ bool imuInit()
     }
 
     startTimeMs = millis();
+    initialized = true;
     return true;
 }
 
 void imuUpdateBias()
 {
+    if (!initialized)
+        return;
     if (biasSaved)
         return;
     if (!eepromReady)
@@ -227,21 +234,26 @@ bool imuRead(Angles &out)
 
     const bool hasData = (myICM.status == ICM_20948_Stat_Ok ||
                           myICM.status == ICM_20948_Stat_FIFOMoreDataAvail);
-
     if (!hasData)
         return false;
+
+    // Drain backlog, keeping the latest frame
+    while (myICM.status == ICM_20948_Stat_FIFOMoreDataAvail)
+        myICM.readDMPdataFromFIFO(&data);
+
+    // Validate the final read succeeded before using `data`
+    const bool finalOk = (myICM.status == ICM_20948_Stat_Ok ||
+                          myICM.status == ICM_20948_Stat_FIFOMoreDataAvail);
+
+    if (!finalOk)
+        return false;
+
     if (!(data.header & DMP_header_bitmap_Quat6))
         return false;
 
     quaternionToAngles(data, out);
-
-    // Drain remaining FIFO frames to prevent lag buildup
-    if (myICM.status == ICM_20948_Stat_FIFOMoreDataAvail)
-        imuRead(out);
-
     return true;
 }
-
 bool imuBiasesRestored()
 {
     return biasRestored;

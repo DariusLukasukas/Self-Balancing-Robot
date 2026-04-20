@@ -1,8 +1,13 @@
 #include <Arduino.h>
 #include "config.h"
 #include "imu.h"
+#include "motors.h"
+#include "web/web_server.h"
 
-static Angles angles;
+namespace
+{
+    Angles angles;
+}
 
 void setup()
 {
@@ -26,7 +31,8 @@ void setup()
         Serial.println("[MAIN] Move sensor for ~2 minutes so bias can be saved.");
     }
 
-    Serial.println();
+    motorsInit();
+    motorsTest();
 }
 
 void loop()
@@ -41,5 +47,6 @@ void loop()
     }
 
     imuUpdateBias();
-    delay(10);
+
+    motorsUpdate(); // ← add this; remove or replace delay(10)
 }
