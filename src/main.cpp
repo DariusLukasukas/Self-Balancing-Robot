@@ -32,7 +32,7 @@ void setup()
     }
 
     motorsInit();
-    motorsTest();
+    webServerInit();
 }
 
 void loop()
@@ -40,13 +40,9 @@ void loop()
     if (imuRead(angles))
     {
         imuPrintAngles(angles);
-
-        // Later:
-        // float pidOutput = pidCompute(angles.pitch);
-        // motorsSetSpeed(pidOutput);
     }
 
     imuUpdateBias();
-
-    motorsUpdate(); // ← add this; remove or replace delay(10)
+    motorsUpdate();
+    webServerUpdate();
 }

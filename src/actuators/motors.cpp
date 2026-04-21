@@ -4,59 +4,140 @@
 
 namespace
 {
+    struct Motor
+    {
+        int stepPin;
+        int dirPin;
+        bool invertDir;
+    };
+
+    constexpr Motor left = {cfg::MOTOR_L_STEP_PIN, cfg::MOTOR_L_DIR_PIN, cfg::MOTOR_L_INVERT_DIR};
+    constexpr Motor right = {cfg::MOTOR_R_STEP_PIN, cfg::MOTOR_R_DIR_PIN, cfg::MOTOR_R_INVERT_DIR};
+
+    // Runtime state
+    MotorState state;
     bool initialized = false;
-    float targetSpeed = 0.0f;                                                // us/sec; negative = backward
-    uint32_t lastStepUs = 0;                                                 // micros() timestamp of the last step pulse
-    constexpr float maxSpeed = 1000000.0f / cfg::MOTOR_MIN_STEP_INVERVAL_US; // = ~5000steps/sec
-}
+
+    uint32_t lastStepUsL = 0;
+    uint32_t lastStepUsR = 0;
+
+    constexpr uint32_t MICROS_PER_SEC = 1000000UL;
+    constexpr float MAX_SPEED = 1000000.0f / cfg::MOTOR_MIN_STEP_INVERVAL_US;
+
+    // Helper functions
+    float clamp(float speed)
+    {
+        if (speed > MAX_SPEED)
+            return MAX_SPEED;
+        if (speed < -MAX_SPEED)
+            return -MAX_SPEED;
+        return speed;
+    };
+
+    void applyDir(const Motor &motor, float speed)
+    {
+        if (fabsf(speed) < cfg::MOTOR_DEADBAND_STEPS_PER_SEC)
+            return;
+
+        bool forward = (speed > 0.0f) != motor.invertDir;
+        digitalWrite(motor.dirPin, forward ? HIGH : LOW);
+    };
+
+    MotorState::Direction toDir(float speed)
+    {
+        if (speed > cfg::MOTOR_DEADBAND_STEPS_PER_SEC)
+            return MotorState::Direction::FORWARD;
+        if (speed < -cfg::MOTOR_DEADBAND_STEPS_PER_SEC)
+            return MotorState::Direction::BACKWARD;
+        return MotorState::Direction::STOP;
+    };
+
+    void syncState()
+    {
+        state.dirLeft = toDir(state.speedLeft);
+        state.dirRight = toDir(state.speedRight);
+
+        const bool running =
+            (fabsf(state.speedLeft) > cfg::MOTOR_DEADBAND_STEPS_PER_SEC ||
+             fabsf(state.speedRight) > cfg::MOTOR_DEADBAND_STEPS_PER_SEC);
+
+        state.status = running ? MotorState::Status::RUNNING
+                               : MotorState::Status::IDLE;
+    };
+
+    void stepMotor(const Motor &motor, float speed, uint32_t &lastStepUs)
+    {
+        float absSpeed = fabsf(speed);
+
+        if (absSpeed < cfg::MOTOR_DEADBAND_STEPS_PER_SEC)
+            return;
+
+        // Convert steps/sec to microseconds between pulses
+        const uint32_t interval = static_cast<uint32_t>(MICROS_PER_SEC / absSpeed);
+        uint32_t now = micros();
+
+        // Not enough time has passed since last pulse — wait
+        if ((now - lastStepUs) < interval)
+            return;
+
+        // Fire one step pulse — HIGH → hold → LOW
+        digitalWrite(motor.stepPin, HIGH);
+        delayMicroseconds(cfg::MOTOR_STEP_PULSE_WIDTH_US);
+        digitalWrite(motor.stepPin, LOW);
+
+        // Records when this pulse fired so next call knows when to fire again
+        lastStepUs = now;
+    }
+};
+
+const MotorState &motorsGetState()
+{
+    return state;
+};
 
 void motorsInit()
 {
-    pinMode(cfg::MOTOR_L_STEP_PIN, OUTPUT);
-    pinMode(cfg::MOTOR_L_DIR_PIN, OUTPUT);
-    pinMode(cfg::MOTOR_R_STEP_PIN, OUTPUT);
-    pinMode(cfg::MOTOR_R_DIR_PIN, OUTPUT);
+    pinMode(left.stepPin, OUTPUT);
+    pinMode(left.dirPin, OUTPUT);
+    pinMode(right.stepPin, OUTPUT);
+    pinMode(right.dirPin, OUTPUT);
 
-    digitalWrite(cfg::MOTOR_L_STEP_PIN, LOW);
-    digitalWrite(cfg::MOTOR_L_DIR_PIN, LOW);
-    digitalWrite(cfg::MOTOR_R_STEP_PIN, LOW);
-    digitalWrite(cfg::MOTOR_R_DIR_PIN, LOW);
+    digitalWrite(left.stepPin, LOW);
+    digitalWrite(left.dirPin, LOW);
+    digitalWrite(right.stepPin, LOW);
+    digitalWrite(right.dirPin, LOW);
 
-    Serial.println("===MOTORS INIT===");
     initialized = true;
-}
+    Serial.println("[MOTORS] Init");
+};
 
 void motorsStop()
 {
-    targetSpeed = 0.0f;
-    digitalWrite(cfg::MOTOR_L_STEP_PIN, LOW);
-    digitalWrite(cfg::MOTOR_R_STEP_PIN, LOW);
-}
+    if (!initialized)
+        return;
 
-static void setDirection(float speed)
+    state.speedLeft = 0.0f;
+    state.speedRight = 0.0f;
+    lastStepUsL = 0;
+    lastStepUsR = 0;
+
+    digitalWrite(left.stepPin, LOW);
+    digitalWrite(right.stepPin, LOW);
+
+    syncState();
+};
+
+void motorsSetSpeed(float sl, float sr)
 {
-    const bool forward = (speed >= 0.0f); // -speed = backward; +speed = forward
+    if (!initialized)
+        return;
 
-    const bool leftForward = forward != cfg::MOTOR_L_INVERT_DIR;
-    const bool rightForward = forward != cfg::MOTOR_R_INVERT_DIR;
+    state.speedLeft = clamp(sl);
+    state.speedRight = clamp(sr);
 
-    // HIGH = forward, LOW = backward
-    digitalWrite(cfg::MOTOR_L_DIR_PIN, leftForward ? HIGH : LOW);
-    digitalWrite(cfg::MOTOR_R_DIR_PIN, rightForward ? HIGH : LOW);
-}
-
-void motorsSetSpeed(float speed)
-{
-    if (speed > maxSpeed)
-        speed = maxSpeed;
-    if (speed < -maxSpeed)
-        speed = -maxSpeed;
-
-    // Update direction immediately on sign change
-    if ((speed >= 0.0f) != (targetSpeed >= 0.0f))
-        setDirection(speed);
-
-    targetSpeed = speed;
+    applyDir(left, state.speedLeft);
+    applyDir(right, state.speedRight);
+    syncState();
 }
 
 void motorsUpdate()
@@ -64,71 +145,6 @@ void motorsUpdate()
     if (!initialized)
         return;
 
-    const float absSpeed = fabsf(targetSpeed);
-
-    // Dead-band: ignore tiny speed commands - avoids jitter at standstill
-    if (absSpeed < cfg::MOTOR_DEADBAND_STEPS_PER_SEC)
-        return;
-
-    // How many microsteps should elapse between each step pulse?
-    const uint32_t interval_us = static_cast<uint32_t>(1000000.0f / absSpeed);
-
-    const uint32_t now = micros();
-
-    // Not enough time has passed since last step - do nothing
-    if ((now - lastStepUs) < interval_us)
-        return;
-
-    setDirection(targetSpeed);
-
-    // Rising edge - both motors start step
-    digitalWrite(cfg::MOTOR_L_STEP_PIN, HIGH);
-    digitalWrite(cfg::MOTOR_R_STEP_PIN, HIGH);
-
-    // Hold HIGH for the minimum pulse width the DRV8825 requires (≥1.9µs)
-    delayMicroseconds(cfg::MOTOR_STEP_PULSE_WIDTH_US);
-
-    // Falling edge
-    digitalWrite(cfg::MOTOR_L_STEP_PIN, LOW);
-    digitalWrite(cfg::MOTOR_R_STEP_PIN, LOW);
-
-    lastStepUs = now;
-}
-
-void motorsTest()
-{
-    if (!initialized)
-    {
-        Serial.println("[MOTORS] motorsTest() called before init!");
-        return;
-    }
-
-    Serial.println("[MOTORS] Test start — ramp up, hold, ramp down");
-
-    // Ramp up forward
-    for (int speed = 200; speed <= 2000; speed += 200)
-    {
-        motorsSetSpeed(static_cast<float>(speed));
-        const uint32_t endMs = millis() + 500;
-        while (millis() < endMs)
-            motorsUpdate();
-        Serial.printf("[MOTORS] Speed: %d usteps/sec\n", speed);
-    }
-
-    // Hold at cruise speed
-    const uint32_t cruiseEnd = millis() + 2000;
-    while (millis() < cruiseEnd)
-        motorsUpdate();
-
-    // Ramp back down
-    for (int speed = 2000; speed >= 0; speed -= 200)
-    {
-        motorsSetSpeed(static_cast<float>(speed));
-        const uint32_t endMs = millis() + 500;
-        while (millis() < endMs)
-            motorsUpdate();
-    }
-
-    motorsStop();
-    Serial.println("[MOTORS] Test complete");
+    stepMotor(left, state.speedLeft, lastStepUsL);
+    stepMotor(right, state.speedRight, lastStepUsR);
 }

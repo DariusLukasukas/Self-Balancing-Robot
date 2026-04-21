@@ -11,6 +11,7 @@ namespace
     bool biasSaved = false;
     bool eepromReady = false;
     uint32_t startTimeMs = 0;
+    Angles currentAngles;
 }
 
 static bool connectSensor()
@@ -252,6 +253,7 @@ bool imuRead(Angles &out)
         return false;
 
     quaternionToAngles(data, out);
+    currentAngles = out;
     return true;
 }
 bool imuBiasesRestored()
@@ -263,4 +265,9 @@ void imuPrintAngles(const Angles &a)
 {
     Serial.printf("Pitch: %6.2f  Roll: %6.2f  Yaw: %6.2f  (deg)\n",
                   a.pitch, a.roll, a.yaw);
+}
+
+const Angles &imuGetAngles()
+{
+    return currentAngles;
 }

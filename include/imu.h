@@ -27,3 +27,5 @@ bool imuBiasesRestored();
 
 // Print formatted angles to Serial. Debug helper.
 void imuPrintAngles(const Angles &a);
+
+const Angles &imuGetAngles();

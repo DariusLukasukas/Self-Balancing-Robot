@@ -6,9 +6,37 @@
     <style>
         :root {
             font-family: monospace;
+            line-height: 1.4;
         }
+
+        p {
+            margin: 0 0 8px;
+        }
+
         header {
             text-transform: uppercase;
+        }
+
+        .manual-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .manual-controls > div {
+            min-height: 28px;
+        }
+
+        .manual-controls label {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .manual-controls select,
+        .manual-controls button {
+            height: 28px;
+            padding: 0 10px;
         }
    
     </style>
@@ -21,17 +49,81 @@
     <main>
         <!-- IMU -->
          <section>
-            <h2>IMU</h2>
+            <header>
+                <h2>IMU</h2>
+            </header>
             <div id="imu-data">
                 <p>Pitch: <span id="pitch">0</span>°</p>
                 <p>Roll: <span id="roll">0</span>°</p>
                 <p>Yaw: <span id="yaw">0</span>°</p>
             </div>
          </section>
+
+         <section>
+            <header>
+                <h2>Stepper motors</h2>
+            </header>
+            <div style="display: flex; flex-direction: row; gap: 16px;">
+                 <div>
+                    <h3>Left motor</h3>
+                    <p>Status: <span id="left-status">IDLE</span></p>
+                    <p>Speed: <span id="left-speed">0</span> steps/s</p>
+                    <p>Direction: <span id="left-dir">NaN</span></p>
+                </div>
+                <div>
+                    <h3>Right motor</h3>
+                    <p>Status: <span id="right-status">IDLE</span></p>
+                    <p>Speed: <span id="right-speed">0</span> steps/s</p>
+                    <p>Direction: <span id="right-dir">NaN</span></p>
+                </div>
+            </div>
+         </section>
+
+         <section>
+            <header>
+                <h2>Manual Motor Control</h2>
+            </header>
+            <div class="manual-controls">
+                <div>
+                    <label>Speed:
+                        <input type="range" id="speed-control" value="0" min="-5000" max="5000" step="100" oninput="document.getElementById('target-speed-val').textContent = this.value">
+                        <span id="target-speed-val">0</span> steps/s
+                    </label>
+                </div>
+                <div>
+                    <label>
+                        Direction:
+                    </label>
+                    <select id="target-direction">
+                        <option value="FORWARD">Forward</option>
+                        <option value="BACKWARD">Backward</option>
+                    </select>
+                </div>
+                <div>  
+                    <button id="run-btn">Run</button>
+                    <button id="stop-btn">Stop</button>
+                </div>
+            </div>
+         </section>
     </main>
 
     <script>
-        
+        // IMU
+        const pitchEl = document.getElementById("pitch");
+        const rollEl = document.getElementById("roll");
+        const yawEl = document.getElementById("jaw");
+
+        // Stepper motors
+        const leftStatusEl = document.getElementById("left-status");
+        const leftSpeedEl = document.getElementById("left-speed");
+        const leftDirectionEl = document.getElementById("left-dir");
+        const rightStatusEl = document.getElementById("right-status");
+        const rightSpeedEl = document.getElementById("right-speed");
+        const rightDirectionEl = document.getElementById("right-dir");
+
+        // Motor control
+        const speed = document.getElementById("speed-control").value;
+        const dir = document.getElementById("target-direction").value;
     </script>
 </body>
 </html>
