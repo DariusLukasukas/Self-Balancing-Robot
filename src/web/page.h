@@ -1,3 +1,9 @@
+#pragma once
+#include "Arduino.h"
+
+// NOTE: This is the page actually served by the ESP32 at "/".
+// Keep it in sync with src/web/index.html.
+const char ROOT_PAGE[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="en">
 
@@ -589,7 +595,7 @@
             </tbody>
         </table>
 
-        <table>
+       <table>
             <thead>
                 <tr>
                     <th class="table-title" colspan="3">IMU (ANGLES)</th>
@@ -825,7 +831,7 @@
                     </td>
                 </tr>
                 <tr>
-                    <td data-label="Param">Target (deg)</td>
+                    <td data-label="Param">Target °</td>
                     <td data-label="Current"><span class="value-pill" id="pid-target">—</span></td>
                     <td data-label="Set" class="left">
                         <div class="field">
@@ -1435,3 +1441,4 @@
 </body>
 
 </html>
+)rawliteral";

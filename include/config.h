@@ -19,8 +19,13 @@ namespace cfg
     constexpr uint32_t SERIAL_BOOT_DELAY = 3000; // ms - 3s
 
     // === WiFi Credentials ===
-    inline constexpr const char *WIFI_SSID = WIFI_SSID_BUILD;
-    inline constexpr const char *WIFI_PASS = WIFI_PASS_BUILD;
+    // inline constexpr const char *WIFI_SSID = WIFI_SSID_BUILD;
+    // inline constexpr const char *WIFI_PASS = WIFI_PASS_BUILD;
+
+    // === WiFi Credentials ===
+    // TODO: Replace temporary WiFi credentials with university sensor network credentials when received
+    inline constexpr const char *WIFI_SSID = "DiPhone"; 
+    inline constexpr const char *WIFI_PASS = "duxxyw-Bubcas-5tuxfo"; 
 
     // === Web Server ===
     constexpr int WEB_SERVER_PORT = 8000;
@@ -84,17 +89,42 @@ namespace cfg
     constexpr int MOTOR_STEP_PULSE_WIDTH_US = 2;    // microseconds (min 1.9us for DRV8825)
     constexpr int MOTOR_MIN_STEP_INVERVAL_US = 200; // microseconds (max ~5000 steps/sec)
 
+    // Maximum signed motor command (steps/s). Single source of truth shared by motor
+    // clamping AND the PID output bounds so they cannot drift apart silently.
+    constexpr float MOTOR_MAX_STEPS_PER_SEC =
+        1.0e6f / static_cast<float>(MOTOR_MIN_STEP_INVERVAL_US);
+
     // === Stepper motors (NEMA 17HE15-1504S) ===
-    constexpr int MOTOR_STEPS_PER_REV = 200;                                          // Total steps per revolution
-    constexpr int MOTOR_USTEPS_PER_REV = MOTOR_STEPS_PER_REV * MOTOR_MICROSTEPS_MODE; // Total microsteps per motor shaft revolution
-    constexpr float MOTOR_DEG_PER_USTEP = 360.0f / MOTOR_USTEPS_PER_REV;              // Degrees moved per one microstep at the motor shaft
+    constexpr int MOTOR_STEPS_PER_REV = 200; // Total steps per revolution
 
     // === PID ===
-    constexpr float PID_TARGET_ANGLE_DEG = 0.0f;
+    constexpr float PID_TARGET_ANGLE_DEG = 2.0f;
 
-    constexpr float PID_KP = 25.0f;
-    constexpr float PID_KI = 0.0f;
-    constexpr float PID_KD = 1.2f;
+    constexpr float PID_KP = 150.0f;
+    constexpr float PID_KI = 0.5f;
+    constexpr float PID_KD = 1.0f;
+
+    // D-term low-pass filter coefficient (single-pole IIR, 0..1).
+    // Lower = more smoothing (and more lag); 1.0 disables filtering.
+    constexpr float PID_D_FILTER_ALPHA = 0.25f;
+
+    // === Control / Safety ===
+    // Start in MANUAL (motors stopped) and require user to engage BALANCE via web UI.
+    constexpr bool CONTROL_START_IN_BALANCE = false;
+
+    // Roll angle normalization: measured_roll = wrapTo180((invert ? -roll : roll) + offset)
+    // DMP roll is often ~±180° when upright; offset -180 maps upright to ~0° for balancing.
+    constexpr float PID_ROLL_OFFSET_DEG = -180.0f;
+    constexpr bool PID_ROLL_INVERT = false;
+
+    // If robot is beyond this tilt, cut motor output and reset integrator.
+    // Past ~40° the wheels can't recover anyway; any larger value just spins motors
+    // while the robot is on the floor.
+    constexpr float PID_MAX_TILT_DEG = 40.0f;
+
+    // Manual + PID output slew-rate limit (helps prevent stepper stalls/grinding).
+    // Units: (steps/s) per second.
+    constexpr float MOTOR_SLEW_RATE_STEPS_PER_SEC2 = 8000.0f;
 
     // Minimum speed command. Safety guard against division by zero and prevents jitter at near-standstill. Tunable alongside PID
     constexpr float MOTOR_DEADBAND_STEPS_PER_SEC = 2.0f;

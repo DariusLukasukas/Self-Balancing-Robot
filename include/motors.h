@@ -23,6 +23,5 @@ struct MotorState
 void motorsInit();
 void motorsSetSpeed(float sl, float sr);
 void motorsStop();
-void motorsUpdate();
 
 const MotorState &motorsGetState();
