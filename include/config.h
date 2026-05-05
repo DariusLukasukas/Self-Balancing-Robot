@@ -24,8 +24,8 @@ namespace cfg
 
     // === WiFi Credentials ===
     // TODO: Replace temporary WiFi credentials with university sensor network credentials when received
-    inline constexpr const char *WIFI_SSID = "DiPhone"; 
-    inline constexpr const char *WIFI_PASS = "duxxyw-Bubcas-5tuxfo"; 
+    inline constexpr const char *WIFI_SSID = "DiPhone";
+    inline constexpr const char *WIFI_PASS = "duxxyw-Bubcas-5tuxfo";
 
     // === Web Server ===
     constexpr int WEB_SERVER_PORT = 8000;
@@ -51,7 +51,7 @@ namespace cfg
      * AD0 to GND   = 0x68 (AD0_VAL 0)
      */
     constexpr uint8_t IMU_AD0_VAL = 1;
-    // DMP output rate: 0 = maximum (~55 Hz)
+    // DMP output rate: 0 = maximum (~225 Hz)
     constexpr uint8_t IMU_DMP_ODR = 0;
 
     // Mounting orientation correction
@@ -81,7 +81,7 @@ namespace cfg
      * Microstepping
      * Options: 1 (full step), 2 (1/2), 4 (1/4), 8 (1/8), 16 (1/16), 32 (1/32)
      */
-    constexpr int MOTOR_MICROSTEPS_MODE = 8;
+    constexpr int MOTOR_MICROSTEPS_MODE = 16;
 
     /*
      * Motor Pulse Timing
